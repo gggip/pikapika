@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>成語大亂鬥 (2-4人版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
+        
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            background-color: #f0fdf4;
+            user-select: none;
+            /* 修復手機瀏覽器高度問題 */
+            height: 100dvh; 
+            width: 100vw;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .pixel-font {
+            font-weight: 900;
+            text-shadow: 2px 2px 0px #000;
+        }
+
+        /* 玩家標籤顏色 */
+        .p1-tag { background-color: #fbbf24; border-color: #b45309; } /* 黃 */
+        .p2-tag { background-color: #c084fc; border-color: #7e22ce; } /* 紫 */
+        .p3-tag { background-color: #60a5fa; border-color: #1d4ed8; } /* 藍 */
+        .p4-tag { background-color: #f87171; border-color: #b91c1c; } /* 紅 */
+
+        .loading-dots:after {
+            content: '.';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80%, 100% { content: ''; }
+        }
+
+        .avatar-preview {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 4px solid white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body class="bg-green-100 relative">
+
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- UI Overlay (In Game) -->
+    <div id="gameUI" class="absolute inset-0 pointer-events-none hidden flex flex-col justify-between p-2 z-10">
+        <!-- Top Bar: Scoreboard (Dynamic) -->
+        <div class="flex justify-between items-start w-full gap-2" id="scoreboardArea">
+            <!-- Scores will be injected here by JS -->
+        </div>
+
+        <!-- Question Box (Floating below scores) -->
+        <div class="absolute top-24 left-0 w-full flex justify-center pointer-events-none">
+             <div class="bg-white/95 backdrop-blur border-4 border-blue-500 rounded-2xl px-4 py-2 shadow-xl text-center min-w-[200px] max-w-[90%]">
+                 <p class="text-gray-500 text-xs font-bold">請接住缺字！</p>
+                 <h1 id="idiomDisplay" class="text-3xl md:text-5xl font-black text-gray-800 tracking-widest whitespace-nowrap overflow-hidden text-ellipsis">
+                    等待開始...
+                </h1>
+            </div>
+        </div>
+
+        <!-- Room Info (Bottom) -->
+        <div class="text-center pb-4">
+             <span class="bg-black/20 text-white px-3 py-1 rounded-full text-xs font-mono" id="roomCodeDisplay">ROOM: ----</span>
+        </div>
+    </div>
+
+    <!-- Lobby Screen -->
+    <div id="lobbyScreen" class="absolute inset-0 bg-gradient-to-br from-green-300 to-blue-400 flex flex-col items-center justify-center z-50 p-4 overflow-y-auto">
+        <!-- 增加 w-full 和 max-w-[90vw] 確保不超出螢幕寬度 -->
+        <div class="bg-white p-6 md:p-8 rounded-3xl shadow-2xl w-full max-w-sm text-center border-8 border-white/50 my-auto">
+            <h1 class="text-3xl md:text-4xl font-black text-blue-600 mb-2 tracking-tight">⚡ 成語大亂鬥 ⚡</h1>
+            <p class="text-gray-500 mb-4 font-bold text-sm">多人派對版 (2-4人)</p>
+
+            <div id="authSection" class="mb-4">
+                 <p class="text-gray-400 text-sm loading-dots">正在連線伺服器</p>
+                 <p id="authError" class="text-red-500 text-xs hidden mt-2">連線失敗</p>
+            </div>
+
+            <!-- Avatar Selection -->
+            <div id="avatarSection" class="mb-6 hidden animate-fade-in">
+                <p class="text-gray-600 text-xs font-bold mb-2">設定你的角色</p>
+                <div class="flex justify-center mb-3 relative group cursor-pointer" onclick="document.getElementById('avatarInput').click()">
+                    <img id="avatarPreview" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/dream-world/25.svg" class="avatar-preview bg-gray-100">
+                    <div class="absolute inset-0 flex items-center justify-center bg-black/30 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                        <i class="fas fa-camera text-white"></i>
+                    </div>
+                </div>
+                <input type="file" id="avatarInput" accept="image/*" class="hidden" onchange="handleAvatarUpload(this)">
+                <input type="text" id="playerName" placeholder="輸入暱稱" maxlength="6" class="w-full bg-gray-100 border-2 border-gray-300 rounded-lg px-3 py-2 text-center font-bold text-sm focus:outline-none focus:border-blue-500 mb-2" value="玩家">
+            </div>
+
+            <div id="menuSection" class="hidden space-y-3">
+                <button id="createBtn" class="w-full bg-yellow-400 hover:bg-yellow-500 text-yellow-900 font-bold py-3 rounded-xl shadow-lg border-b-4 border-yellow-600 active:border-b-0 active:translate-y-1 transition">
+                    <i class="fas fa-plus-circle"></i> 建立房間 (Host)
+                </button>
+                
+                <div class="flex items-center gap-2">
+                    <div class="h-px bg-gray-300 flex-1"></div>
+                    <span class="text-gray-400 text-xs">或是</span>
+                    <div class="h-px bg-gray-300 flex-1"></div>
+                </div>
+
+                <div class="flex gap-2">
+                    <input type="text" id="roomInput" placeholder="房號" maxlength="4" class="flex-1 bg-gray-100 border-2 border-gray-300 rounded-xl px-2 py-2 text-center font-bold text-xl uppercase focus:outline-none focus:border-blue-500 min-w-0">
+                    <button id="joinBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold px-4 py-2 rounded-xl shadow-lg border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition whitespace-nowrap">
+                        加入
+                    </button>
+                </div>
+            </div>
+
+            <div id="waitingSection" class="hidden text-center py-4">
+                <div class="animate-spin text-4xl text-blue-500 mb-4"><i class="fas fa-spinner"></i></div>
+                <h3 class="text-xl font-bold text-gray-800 mb-2">等待玩家加入...</h3>
+                
+                <!-- 修正這裡：字體改小一點，防止手機版超出 -->
+                <p class="text-3xl md:text-4xl font-mono font-black bg-gray-100 py-2 rounded-lg mb-4 select-all tracking-wider text-blue-600 break-all" id="generatedRoomCode">----</p>
+                
+                <div id="playerList" class="flex justify-center flex-wrap gap-2 mb-6 min-h-[60px]">
+                    <!-- Player icons will populate here -->
+                </div>
+
+                <button id="startGameBtn" class="hidden w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl shadow-lg border-b-4 border-green-700 active:border-b-0 active:translate-y-1 transition animate-bounce">
+                    開始遊戲！
+                </button>
+                <p id="waitingText" class="text-xs text-gray-500">需至少 2 人才能開始</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Game Over Screen -->
+    <div id="gameOverScreen" class="hidden absolute inset-0 bg-black/85 flex flex-col items-center justify-center z-50 pointer-events-auto">
+        <div class="bg-white p-8 rounded-3xl border-8 border-gray-300 max-w-md w-[90%] text-center shadow-2xl">
+            <h2 class="text-3xl font-black text-gray-800 mb-4" id="winnerText">比賽結束！</h2>
+            <div class="flex flex-col gap-2 mb-6 w-full max-h-[50vh] overflow-y-auto" id="finalScores">
+                <!-- Final scores injected here -->
+            </div>
+            <button onclick="location.reload()" class="bg-blue-500 text-white font-bold py-3 px-8 rounded-xl shadow-lg hover:bg-blue-600 transition">
+                回到大廳
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==========================================
+        // CONFIG: 請填入你的 Firebase 設定
+        // ==========================================
+        //const MANUAL_CONFIG = null; 
+        // 範例： const MANUAL_CONFIG = { apiKey: "AIzaSyCTzlspfVyvt_c9Iamfs73Q39BSsGKXmbo",
+  authDomain: "pikachu-party.firebaseapp.com",
+  projectId: "pikachu-party",
+  storageBucket: "pikachu-party.firebasestorage.app",
+  messagingSenderId: "409348876468",
+  appId: "1:409348876468:web:0f452361c54675386d0fe1",
+  measurementId: "G-H4P2MX0HJ6"};
+
+        let firebaseConfig;
+        try {
+            firebaseConfig = JSON.parse(__firebase_config);
+        } catch (e) {
+            firebaseConfig = MANUAL_CONFIG;
+        }
+
+        if (!firebaseConfig) {
+            document.getElementById('authError').innerText = "缺少 Firebase 設定";
+            document.getElementById('authError').classList.remove('hidden');
+            throw new Error("Missing Config");
+        }
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'pikachu-party';
+        
+        // --- State ---
+        let currentUser = null;
+        let roomId = null;
+        let isHost = false;
+        let unsubscribeRoom = null;
+        let myAvatarBase64 = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/dream-world/25.svg"; // Default
+        
+        // Canvas & Game
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const idioms = [
+            { text: "一石二＿", answer: "鳥", decoys: ["魚", "馬", "蟲"] },
+            { text: "守株待＿", answer: "兔", decoys: ["虎", "龍", "豬"] },
+            { text: "畫蛇添＿", answer: "足", decoys: ["手", "頭", "尾"] },
+            { text: "對牛彈＿", answer: "琴", decoys: ["吉", "鼓", "笛"] },
+            { text: "虎頭蛇＿", answer: "尾", decoys: ["頭", "腳", "身"] },
+            { text: "亡羊補＿", answer: "牢", decoys: ["衣", "網", "屋"] },
+            { text: "井底之＿", answer: "蛙", decoys: ["魚", "蛇", "鳥"] },
+            { text: "三心兩＿", answer: "意", decoys: ["手", "腳", "頭"] },
+            { text: "雪中送＿", answer: "炭", decoys: ["水", "冰", "花"] },
+            { text: "一鳴驚＿", answer: "人", decoys: ["天", "地", "鬼"] }
+        ];
+
+        let gameState = {
+            status: 'menu', 
+            items: [], 
+            currentIdiom: idioms[0],
+            players: {}, // { uid: { x, score, role, avatar, name } }
+            winner: null
+        };
+
+        // Local settings
+        let localPlayer = {
+            id: null,
+            role: null, // p1, p2, p3, p4
+            x: 0,
+            y: 0, 
+            vx: 0,
+            width: 70, // Slightly smaller for 4 players
+            height: 70,
+            friction: 0.9,
+            targetX: null,
+            lastSync: 0
+        };
+
+        // --- Avatar Handling ---
+        window.handleAvatarUpload = function(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                // Resize image to max 100x100 to save bandwidth/firestore space
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const maxSize = 100;
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    if (width > height) {
+                        if (width > maxSize) {
+                            height *= maxSize / width;
+                            width = maxSize;
+                        }
+                    } else {
+                        if (height > maxSize) {
+                            width *= maxSize / height;
+                            height = maxSize;
+                        }
+                    }
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    myAvatarBase64 = canvas.toDataURL('image/png', 0.8);
+                    document.getElementById('avatarPreview').src = myAvatarBase64;
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        // --- Auth ---
+        signInAnonymously(auth).catch(console.error);
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                localPlayer.id = user.uid;
+                document.getElementById('authSection').classList.add('hidden');
+                document.getElementById('avatarSection').classList.remove('hidden');
+                document.getElementById('menuSection').classList.remove('hidden');
+            }
+        });
+
+        // --- Firestore Helpers ---
+        function getRoomRef(id) {
+            return doc(db, 'artifacts', appId, 'public', 'data', 'rooms', `room_${id}`);
+        }
+
+        // --- Room Logic ---
+        function generateRoomCode() { return Math.floor(1000 + Math.random() * 9000).toString(); }
+
+        async function createRoom() {
+            if (!currentUser) return;
+            const code = generateRoomCode();
+            roomId = code;
+            isHost = true;
+            localPlayer.role = 'p1';
+            localPlayer.x = canvas.width * 0.2; // Start left
+
+            const playerName = document.getElementById('playerName').value || "玩家1";
+
+            const initialPlayers = {};
+            initialPlayers[currentUser.uid] = {
+                id: currentUser.uid,
+                role: 'p1',
+                name: playerName,
+                avatar: myAvatarBase64,
+                x: localPlayer.x,
+                score: 0,
+                connected: true
+            };
+
+            try {
+                await setDoc(getRoomRef(roomId), {
+                    hostId: currentUser.uid,
+                    status: 'waiting',
+                    createdAt: Date.now(),
+                    currentIdiomIndex: 0,
+                    spawnEvent: null,
+                    players: initialPlayers,
+                    playerCount: 1
+                });
+
+                enterWaitingRoom();
+                subscribeToRoom();
+            } catch (e) {
+                alert("建立失敗: " + e.message);
+            }
+        }
+
+        async function joinRoom() {
+            if (!currentUser) return;
+            const code = document.getElementById('roomInput').value.trim();
+            if (code.length !== 4) return alert("請輸入4位數");
+
+            roomId = code;
+            isHost = false;
+            const playerName = document.getElementById('playerName').value || "玩家";
+
+            try {
+                const roomRef = getRoomRef(roomId);
+                const roomSnap = await getDoc(roomRef);
+
+                if (!roomSnap.exists()) return alert("房間不存在");
+                const data = roomSnap.data();
+
+                if (data.status !== 'waiting' && !data.players[currentUser.uid]) {
+                    return alert("遊戲已開始");
+                }
+                
+                // Determine Role (P2, P3, P4)
+                let myRole = 'p2';
+                const currentCount = Object.keys(data.players).length;
+
+                // Re-joining or New join?
+                if (data.players[currentUser.uid]) {
+                    myRole = data.players[currentUser.uid].role;
+                } else {
+                    if (currentCount >= 4) return alert("房間已滿");
+                    if (currentCount === 1) myRole = 'p2';
+                    if (currentCount === 2) myRole = 'p3';
+                    if (currentCount === 3) myRole = 'p4';
+                }
+
+                localPlayer.role = myRole;
+                // Distribute starting positions
+                if (myRole === 'p2') localPlayer.x = canvas.width * 0.4;
+                if (myRole === 'p3') localPlayer.x = canvas.width * 0.6;
+                if (myRole === 'p4') localPlayer.x = canvas.width * 0.8;
+
+                // Update Player Data
+                const playerUpdate = {
+                    [`players.${currentUser.uid}`]: {
+                        id: currentUser.uid,
+                        role: myRole,
+                        name: playerName,
+                        avatar: myAvatarBase64,
+                        x: localPlayer.x,
+                        score: 0,
+                        connected: true
+                    },
+                    playerCount: currentCount + (data.players[currentUser.uid] ? 0 : 1)
+                };
+
+                await updateDoc(roomRef, playerUpdate);
+
+                enterWaitingRoom();
+                subscribeToRoom();
+
+            } catch (e) {
+                console.error(e);
+                alert("加入失敗");
+            }
+        }
+
+        function enterWaitingRoom() {
+            document.getElementById('lobbyScreen').children[0].classList.add('hidden'); // hide menu container
+            document.getElementById('lobbyScreen').children[0].parentElement.innerHTML = document.getElementById('lobbyScreen').innerHTML; // hack redraw
+            
+            document.getElementById('menuSection').classList.add('hidden');
+            document.getElementById('avatarSection').classList.add('hidden');
+            document.getElementById('waitingSection').classList.remove('hidden');
+            document.getElementById('generatedRoomCode').innerText = roomId;
+        }
+
+        function subscribeToRoom() {
+            if (unsubscribeRoom) unsubscribeRoom();
+            unsubscribeRoom = onSnapshot(getRoomRef(roomId), (doc) => {
+                if (!doc.exists()) return;
+                const data = doc.data();
+
+                // Sync Players
+                gameState.players = data.players || {};
+                
+                // --- WAITING ROOM LOGIC ---
+                if (data.status === 'waiting') {
+                    updateWaitingList(gameState.players);
+                    
+                    // Host Controls
+                    if (isHost) {
+                        const count = Object.keys(gameState.players).length;
+                        const btn = document.getElementById('startGameBtn');
+                        const txt = document.getElementById('waitingText');
+                        if (count >= 2) {
+                            btn.classList.remove('hidden');
+                            txt.classList.add('hidden');
+                        } else {
+                            btn.classList.add('hidden');
+                            txt.classList.remove('hidden');
+                        }
+                    }
+                }
+
+                // --- GAME START LOGIC ---
+                if (data.status === 'playing') {
+                    if (gameState.status !== 'playing') {
+                        enterGameMode();
+                    }
+                    // Sync Remote Positions (skip local)
+                    Object.values(gameState.players).forEach(p => {
+                        if (p.id === localPlayer.id) {
+                            // Keep local score in sync
+                            if (p.score !== undefined) localPlayer.serverScore = p.score;
+                        }
+                    });
+                }
+
+                // --- GAME LOGIC ---
+                if (data.currentIdiomIndex !== undefined) {
+                    gameState.currentIdiom = idioms[data.currentIdiomIndex % idioms.length];
+                    document.getElementById('idiomDisplay').innerText = gameState.currentIdiom.text;
+                }
+
+                if (!isHost && data.spawnEvent && data.spawnEvent.id !== lastSpawnId) {
+                    spawnItemFromEvent(data.spawnEvent);
+                    lastSpawnId = data.spawnEvent.id;
+                }
+
+                updateScoreboard();
+
+                if (data.status === 'gameover') endGame(data);
+            });
+        }
+
+        function updateWaitingList(players) {
+            const list = document.getElementById('playerList');
+            list.innerHTML = '';
+            Object.values(players).forEach(p => {
+                const div = document.createElement('div');
+                div.className = 'flex flex-col items-center animate-pop-in m-1';
+                div.innerHTML = `
+                    <img src="${p.avatar}" class="w-12 h-12 rounded-full border-4 ${getRoleColor(p.role)} bg-white object-cover">
+                    <span class="text-xs font-bold mt-1 text-gray-600 truncate max-w-[60px]">${p.name}</span>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function getRoleColor(role) {
+            if (role === 'p1') return 'border-yellow-400';
+            if (role === 'p2') return 'border-purple-400';
+            if (role === 'p3') return 'border-blue-400';
+            if (role === 'p4') return 'border-red-400';
+            return 'border-gray-400';
+        }
+
+        function getRoleBg(role) {
+            if (role === 'p1') return 'p1-tag';
+            if (role === 'p2') return 'p2-tag';
+            if (role === 'p3') return 'p3-tag';
+            if (role === 'p4') return 'p4-tag';
+            return '';
+        }
+
+        document.getElementById('startGameBtn').addEventListener('click', async () => {
+            await updateDoc(getRoomRef(roomId), { status: 'playing' });
+        });
+
+        function enterGameMode() {
+            gameState.status = 'playing';
+            document.getElementById('lobbyScreen').classList.add('hidden');
+            document.getElementById('gameUI').classList.remove('hidden');
+            document.getElementById('roomCodeDisplay').innerText = `ROOM: ${roomId}`;
+            resizeCanvas();
+            
+            // Build Scoreboard based on players
+            const board = document.getElementById('scoreboardArea');
+            board.innerHTML = '';
+            Object.values(gameState.players).sort((a,b) => a.role.localeCompare(b.role)).forEach(p => {
+                const card = document.createElement('div');
+                card.id = `score-${p.id}`;
+                card.className = `flex-1 ${getRoleBg(p.role)} border-b-4 rounded-xl p-1 shadow-lg text-center transition-all min-w-[50px] overflow-hidden`;
+                card.innerHTML = `
+                    <div class="flex justify-center mb-1">
+                         <img src="${p.avatar}" class="w-6 h-6 md:w-8 md:h-8 rounded-full bg-white object-cover border-2 border-white">
+                    </div>
+                    <p class="text-[10px] text-white font-bold truncate">${p.name}</p>
+                    <p class="text-lg md:text-xl text-white pixel-font leading-none" id="score-val-${p.id}">0</p>
+                `;
+                board.appendChild(card);
+            });
+
+            if (isHost) hostLoop();
+            startGameLoop();
+        }
+
+        function updateScoreboard() {
+            if (gameState.status !== 'playing') return;
+            Object.values(gameState.players).forEach(p => {
+                const el = document.getElementById(`score-val-${p.id}`);
+                if(el) el.innerText = p.score;
+            });
+        }
+
+        // --- Game Loop & Physics ---
+        let lastSpawnId = null;
+        let lastSyncTime = 0;
+
+        function hostLoop() {
+            if (gameState.status !== 'playing') return;
+            setTimeout(() => {
+                if (gameState.status !== 'playing') return;
+                const idiom = gameState.currentIdiom;
+                const isCorrect = Math.random() < 0.45; 
+                const text = isCorrect ? idiom.answer : idiom.decoys[Math.floor(Math.random() * idiom.decoys.length)];
+                
+                const event = {
+                    id: Date.now() + Math.random(),
+                    text: text,
+                    isCorrect: isCorrect,
+                    x: Math.random() * (canvas.width - 60) + 30,
+                    vy: 3 + Math.random() * 2 
+                };
+
+                updateDoc(getRoomRef(roomId), { spawnEvent: event }).catch(console.error);
+                spawnItemFromEvent(event);
+                hostLoop();
+            }, 1200 + Math.random() * 800);
+        }
+
+        function spawnItemFromEvent(event) {
+            gameState.items.push({ ...event, y: -50, radius: 35, active: true });
+        }
+
+        function syncPosition() {
+            const now = Date.now();
+            if (now - lastSyncTime > 80) { // Faster sync for 4 players
+                updateDoc(getRoomRef(roomId), { [`players.${localPlayer.id}.x`]: localPlayer.x }).catch(e => {}); 
+                lastSyncTime = now;
+            }
+        }
+
+        async function handleScore(isCorrect) {
+            const change = isCorrect ? 10 : -5;
+            try {
+                await updateDoc(getRoomRef(roomId), { 
+                    [`players.${localPlayer.id}.score`]: increment(change) 
+                });
+                
+                if (isCorrect && isHost) {
+                    const nextIndex = Math.floor(Math.random() * idioms.length);
+                    await updateDoc(getRoomRef(roomId), { currentIdiomIndex: nextIndex });
+                }
+            } catch (e) {}
+        }
+
+        function startGameLoop() {
+            function loop() {
+                if (gameState.status !== 'playing') return;
+                update();
+                draw();
+                requestAnimationFrame(loop);
+            }
+            loop();
+        }
+
+        function update() {
+            // Move Local
+            if (localPlayer.targetX !== null) {
+                const dx = localPlayer.targetX - (localPlayer.x + localPlayer.width/2);
+                localPlayer.x += dx * 0.15;
+                if(Math.abs(dx) < 1) localPlayer.targetX = null;
+            }
+            if (localPlayer.x < 0) localPlayer.x = 0;
+            if (localPlayer.x + localPlayer.width > canvas.width) localPlayer.x = canvas.width - localPlayer.width;
+
+            // Collision with OTHER players (Push mechanic)
+            const myCenter = localPlayer.x + localPlayer.width/2;
+            
+            Object.values(gameState.players).forEach(p => {
+                if (p.id === localPlayer.id) return; // Skip self
+                const otherX = p.x; // Use last known pos
+                const otherCenter = otherX + localPlayer.width/2;
+                const dist = Math.abs(myCenter - otherCenter);
+
+                // Push logic
+                if (dist < localPlayer.width * 0.7) {
+                    if (myCenter < otherCenter) {
+                        localPlayer.x -= 4; // Push left
+                    } else {
+                        localPlayer.x += 4; // Push right
+                    }
+                }
+            });
+
+            if (Math.abs(localPlayer.x - (gameState.players[localPlayer.id]?.x || 0)) > 2) {
+                syncPosition();
+            }
+
+            // Items
+            gameState.items.forEach(item => {
+                if (!item.active) return;
+                item.y += item.vy;
+                
+                // Check collision with ME
+                const dx = item.x - (localPlayer.x + localPlayer.width/2);
+                const dy = item.y - (localPlayer.y + localPlayer.height/2);
+                if (Math.hypot(dx, dy) < item.radius + localPlayer.width/2) {
+                    item.active = false;
+                    handleScore(item.isCorrect);
+                    createParticles(item.x, item.y, item.isCorrect ? '#FFD700' : '#888');
+                }
+                if (item.y > canvas.height + 50) item.active = false;
+            });
+            gameState.items = gameState.items.filter(i => i.active);
+            updateParticles();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // BG
+            ctx.fillStyle = '#bbf7d0';
+            ctx.fillRect(0, canvas.height - 30, canvas.width, 30);
+
+            // Draw Items
+            gameState.items.forEach(item => {
+                ctx.save();
+                ctx.translate(item.x, item.y);
+                ctx.beginPath();
+                ctx.arc(0, 0, item.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#FFF'; ctx.fill();
+                ctx.strokeStyle = '#333'; ctx.lineWidth = 3; ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(0, 0, item.radius, Math.PI, 0);
+                ctx.fillStyle = item.isCorrect ? '#ef4444' : '#3b82f6'; ctx.fill(); ctx.stroke();
+                ctx.fillStyle = 'white'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'center';
+                ctx.fillText(item.text, 0, -40);
+                ctx.restore();
+            });
+
+            // Draw Players
+            Object.values(gameState.players).forEach(p => {
+                const isLocal = p.id === localPlayer.id;
+                const x = isLocal ? localPlayer.x : p.x;
+                const y = localPlayer.y;
+                
+                ctx.save();
+                ctx.translate(x + localPlayer.width/2, y + localPlayer.height/2);
+                
+                // Shadow
+                ctx.beginPath();
+                ctx.ellipse(0, localPlayer.height/2 + 5, localPlayer.width/2 - 5, 10, 0, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fill();
+
+                // Role Ring
+                ctx.beginPath();
+                ctx.arc(0, 0, localPlayer.width/2 + 4, 0, Math.PI*2);
+                ctx.fillStyle = getHexColor(p.role);
+                ctx.fill();
+
+                // Avatar Image (Use cached images ideally, here direct draw for simplicity)
+                // Note: In strict game loop, creating new Image() every frame is bad. 
+                // But for this simple demo, we rely on browser cache.
+                // Better: Cache images in a map.
+                const img = getCachedImage(p.id, p.avatar);
+                if(img && img.complete) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.arc(0, 0, localPlayer.width/2, 0, Math.PI*2);
+                    ctx.clip();
+                    ctx.drawImage(img, -localPlayer.width/2, -localPlayer.height/2, localPlayer.width, localPlayer.height);
+                    ctx.restore();
+                }
+
+                // Triangle Indicator for Self
+                if (isLocal) {
+                    ctx.beginPath(); ctx.moveTo(0, -localPlayer.height/2 - 10); 
+                    ctx.lineTo(-10, -localPlayer.height/2 - 20); 
+                    ctx.lineTo(10, -localPlayer.height/2 - 20);
+                    ctx.fillStyle = getHexColor(p.role); ctx.fill();
+                }
+                ctx.restore();
+            });
+
+            drawParticles();
+        }
+
+        const imgCache = {};
+        function getCachedImage(id, src) {
+            if(!imgCache[id]) {
+                const i = new Image();
+                i.src = src;
+                imgCache[id] = i;
+            }
+            return imgCache[id];
+        }
+
+        function getHexColor(role) {
+            if (role === 'p1') return '#fbbf24';
+            if (role === 'p2') return '#c084fc';
+            if (role === 'p3') return '#60a5fa';
+            if (role === 'p4') return '#f87171';
+            return '#ccc';
+        }
+
+        // --- Particles ---
+        let particles = [];
+        function createParticles(x, y, color) {
+            for(let i=0; i<10; i++) particles.push({x, y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, life: 1, color});
+        }
+        function updateParticles() {
+            particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life -= 0.05; });
+            particles = particles.filter(p => p.life > 0);
+        }
+        function drawParticles() {
+            particles.forEach(p => {
+                ctx.globalAlpha = p.life; ctx.fillStyle = p.color; 
+                ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill();
+            });
+            ctx.globalAlpha = 1;
+        }
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            localPlayer.y = canvas.height - 100;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        
+        function handleInput(clientX) {
+            if (gameState.status !== 'playing') return;
+            localPlayer.targetX = clientX;
+        }
+        canvas.addEventListener('mousemove', e => handleInput(e.clientX));
+        canvas.addEventListener('touchmove', e => { e.preventDefault(); handleInput(e.touches[0].clientX); }, { passive: false });
+        canvas.addEventListener('touchstart', e => { e.preventDefault(); handleInput(e.touches[0].clientX); }, { passive: false });
+
+        document.getElementById('createBtn').addEventListener('click', createRoom);
+        document.getElementById('joinBtn').addEventListener('click', joinRoom);
+
+        function endGame(data) {
+            // Sort by score
+            const winners = Object.values(data.players).sort((a,b) => b.score - a.score);
+            const winner = winners[0];
+            
+            document.getElementById('gameOverScreen').classList.remove('hidden');
+            document.getElementById('winnerText').innerText = `🏆 ${winner.name} 獲勝！`;
+            
+            const list = document.getElementById('finalScores');
+            list.innerHTML = '';
+            winners.forEach(p => {
+                list.innerHTML += `
+                    <div class="flex justify-between items-center bg-gray-100 p-3 rounded-lg">
+                        <div class="flex items-center gap-2">
+                             <img src="${p.avatar}" class="w-8 h-8 rounded-full bg-white object-cover">
+                             <span class="font-bold text-gray-700">${p.name}</span>
+                        </div>
+                        <span class="font-black text-xl text-blue-600">${p.score}</span>
+                    </div>
+                `;
+            });
+        }
+    </script>
+</body>
+</html>
